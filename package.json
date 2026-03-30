@@ -3,13 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-  "dev": "next dev",
-  "backend": "node server.js",
-  "start": "next start",
-  "build": "next build",
-  "lint": "next lint",
-  "dev:all": "concurrently \"npm run backend\" \"npm run dev\""
-},
+    "dev": "next dev",
+    "backend": "node server.js",
+    "start": "next start",
+    "build": "next build",
+    "lint": "next lint",
+    "dev:all": "concurrently \"npm run backend\" \"npm run dev\""
+  },
   "dependencies": {
     "@aws-sdk/credential-providers": "latest",
     "@emailjs/nodejs": "latest",
@@ -61,7 +61,7 @@
     "lucide-react": "^0.454.0",
     "mongodb": "latest",
     "mongodb-client-encryption": "latest",
-    "next": "15.2.4",
+    "next": "15.2.8",
     "next-themes": "^0.4.4",
     "qrcode": "latest",
     "react": "^18.2.0",
