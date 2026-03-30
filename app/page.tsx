@@ -1,6 +1,4 @@
 "use client"
-
-import { useAuth } from "@/contexts/AuthContext"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Bus, Users, MapPin, Shield, Clock, CreditCard } from "lucide-react"
@@ -9,37 +7,6 @@ import { useRouter } from "next/navigation"
 import { useEffect } from "react"
 
 export default function HomePage() {
-  const { user, isLoading } = useAuth()
-  const router = useRouter()
-
-  useEffect(() => {
-    if (!isLoading && user) {
-      // Redirect authenticated users to their dashboard
-      switch (user.role) {
-        case "student":
-          router.push("/student")
-          break
-        case "staff":
-          router.push("/staff")
-          break
-        case "admin":
-          router.push("/admin")
-          break
-      }
-    }
-  }, [user, isLoading, router])
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    )
-  }
-
-  if (user) {
-    return null // Will redirect via useEffect
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
@@ -48,7 +15,7 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-6">
             <div className="flex items-center">
-              <Bus className="h-8 w-8 text-primary mr-3" />
+              <Bus className="h-8 w-8 text-green-900 mr-3" />
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">DIU Transport</h1>
                 <p className="text-sm text-gray-600">Smart Transportation System</p>
@@ -59,7 +26,7 @@ export default function HomePage() {
                 <Button variant="outline">Login</Button>
               </Link>
               <Link href="/auth/register">
-                <Button>Register</Button>
+                <Button className="bg-green-600 hover:bg-green-900">Register</Button>
               </Link>
             </div>
           </div>
@@ -76,7 +43,7 @@ export default function HomePage() {
           </p>
           <div className="flex justify-center space-x-4">
             <Link href="/auth/register">
-              <Button size="lg" className="px-8">
+              <Button size="lg" className="px-8 bg-green-600 hover:bg-green-900">
                 Get Started
               </Button>
             </Link>
@@ -92,7 +59,7 @@ export default function HomePage() {
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 mb-16">
           <Card>
             <CardHeader>
-              <CreditCard className="h-8 w-8 text-primary mb-2" />
+              <CreditCard className="h-8 w-8 mb-2 text-green-900" />
               <CardTitle>Digital Ticketing</CardTitle>
               <CardDescription>Book and manage your bus tickets digitally with OneCard integration</CardDescription>
             </CardHeader>
@@ -107,7 +74,7 @@ export default function HomePage() {
 
           <Card>
             <CardHeader>
-              <MapPin className="h-8 w-8 text-primary mb-2" />
+              <MapPin className="h-8 w-8 text-green-900 mb-2" />
               <CardTitle>Real-time Tracking</CardTitle>
               <CardDescription>Track bus locations and get accurate arrival times</CardDescription>
             </CardHeader>
@@ -122,7 +89,7 @@ export default function HomePage() {
 
           <Card>
             <CardHeader>
-              <Clock className="h-8 w-8 text-primary mb-2" />
+              <Clock className="h-8 w-8 text-green-900 mb-2" />
               <CardTitle>Smart Scheduling</CardTitle>
               <CardDescription>View bus schedules and plan your journey efficiently</CardDescription>
             </CardHeader>
@@ -137,7 +104,7 @@ export default function HomePage() {
 
           <Card>
             <CardHeader>
-              <Users className="h-8 w-8 text-primary mb-2" />
+              <Users className="h-8 w-8 text-green-900 mb-2" />
               <CardTitle>Multi-Role Access</CardTitle>
               <CardDescription>Different interfaces for students, staff, and administrators</CardDescription>
             </CardHeader>
@@ -152,7 +119,7 @@ export default function HomePage() {
 
           <Card>
             <CardHeader>
-              <Shield className="h-8 w-8 text-primary mb-2" />
+              <Shield className="h-8 w-8 text-green-900 mb-2" />
               <CardTitle>Secure & Reliable</CardTitle>
               <CardDescription>Built with security and reliability as top priorities</CardDescription>
             </CardHeader>
@@ -167,7 +134,7 @@ export default function HomePage() {
 
           <Card>
             <CardHeader>
-              <Bus className="h-8 w-8 text-primary mb-2" />
+              <Bus className="h-8 w-8 text-green-900 mb-2" />
               <CardTitle>Campus Integration</CardTitle>
               <CardDescription>Seamlessly integrated with DIU campus systems</CardDescription>
             </CardHeader>
@@ -188,7 +155,7 @@ export default function HomePage() {
             Join thousands of DIU students and staff using our smart transport system every day.
           </p>
           <Link href="/auth/register">
-            <Button size="lg" className="px-8">
+            <Button size="lg" className="px-8 bg-green-600 hover:bg-green-900">
               Create Your Account
             </Button>
           </Link>
