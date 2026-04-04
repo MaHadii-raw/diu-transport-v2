@@ -33,3 +33,36 @@ app.use(
     },
   }),
 )
+// MongoDB connection with retry logic
+let db
+const connectWithRetry = async () => {
+  try {
+    const client = await MongoClient.connect(MONGODB_URI, {
+      useUnifiedTopology: true,
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 5000,
+    })
+    console.log("Connected to MongoDB")
+    db = client.db()
+  } catch (error) {
+    console.error("MongoDB connection failed, retrying in 5 seconds...", error)
+    setTimeout(connectWithRetry, 5000)
+  }
+}
+connectWithRetry()
+
+// Middleware for database connection check
+const checkDbConnection = (req, res, next) => {
+  if (!db) {
+    return res.status(503).json({ message: "Database connection unavailable" })
+  }
+  next()
+}
+
+// Authentication middleware
+const requireAuth = (req, res, next) => {
+  if (!req.session.user) {
+    return res.status(401).json({ message: "Authentication required" })
+  }
+  next()
+}
