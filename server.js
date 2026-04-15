@@ -430,3 +430,258 @@ app.get("/api/auth/session", (req, res) => {
     res.status(401).json({ message: "No active session" })
   }
 })
+// Path Routes
+app.get("/api/paths", checkDbConnection, async (req, res) => {
+  try {
+    const paths = await db.collection("paths").find({ active: true }).toArray()
+    res.json({ paths })
+  } catch (error) {
+    console.error("Error fetching paths:", error)
+    res.status(500).json({ message: "Internal server error" })
+  }
+})
+
+// Ticket Routes with atomic booking
+app.post(
+  "/api/tickets/book",
+  [
+    body("userId").isMongoId().withMessage("Invalid user ID"),
+    body("pathId").isMongoId().withMessage("Invalid path ID"),
+    body("pathName").notEmpty().withMessage("Path name is required"),
+    body("pickup").notEmpty().withMessage("Pickup point is required"),
+    body("dropoff").notEmpty().withMessage("Dropoff point is required"),
+    body("fare").isFloat({ min: 1 }).withMessage("Fare must be a positive number"),
+  ],
+  requireStudent,
+  checkDbConnection,
+  async (req, res) => {
+    try {
+      console.log("Ticket booking request received:", req.body)
+      console.log("Session user:", req.session.user)
+
+      const errors = validationResult(req)
+      if (!errors.isEmpty()) {
+        console.log("Validation errors:", errors.array())
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: errors.array(),
+        })
+      }
+
+      const { userId, pathId, pathName, pickup, dropoff, fare } = req.body
+
+      // Verify user matches session
+      if (req.session.user._id.toString() !== userId) {
+        console.log("User ID mismatch:", req.session.user._id.toString(), "vs", userId)
+        return res.status(403).json({ message: "Unauthorized" })
+      }
+
+      // Verify path exists and calculate fare server-side
+      const path = await db.collection("paths").findOne({
+        _id: new ObjectId(pathId),
+        active: true,
+      })
+
+      if (!path) {
+        console.log("Path not found:", pathId)
+        return res.status(404).json({ message: "Path not found" })
+      }
+
+      console.log("Found path:", path)
+
+      // Server-side fare calculation for security
+      const pickupIndex = path.points.findIndex((p) => p.name === pickup)
+      const dropoffIndex = path.points.findIndex((p) => p.name === dropoff)
+
+      console.log("Pickup index:", pickupIndex, "Dropoff index:", dropoffIndex)
+
+      if (pickupIndex === -1 || dropoffIndex === -1 || pickupIndex >= dropoffIndex) {
+        console.log("Invalid pickup/dropoff points")
+        return res.status(400).json({ message: "Invalid pickup/dropoff points" })
+      }
+
+      let calculatedFare = 0
+      for (let i = pickupIndex; i < dropoffIndex; i++) {
+        const segment = path.segments.find((s) => s.from === path.points[i].name && s.to === path.points[i + 1].name)
+        if (segment) {
+          calculatedFare += segment.fare
+        }
+      }
+
+      console.log("Calculated fare:", calculatedFare, "Provided fare:", fare)
+
+      if (Math.abs(calculatedFare - fare) > 0.01) {
+        return res.status(400).json({ message: "Fare mismatch" })
+      }
+
+      // Atomic balance check and deduction
+      const userUpdateResult = await db.collection("users").findOneAndUpdate(
+        {
+          _id: new ObjectId(userId),
+          balance: { $gte: fare },
+        },
+        {
+          $inc: { balance: -fare },
+          $set: { updatedAt: new Date() },
+        },
+        { returnDocument: "after" },
+      )
+      console.log(userUpdateResult)
+
+      // if (!userUpdateResult) {
+      //   console.log("Insufficient balance for user:", userId)
+      //   return res.status(400).json({ message: "Insufficient balance" })
+      // }
+
+      console.log("User balance updated:", userUpdateResult.balance)
+
+      // Create ticket
+      const ticket = {
+        userId: new ObjectId(userId),
+        pathId: new ObjectId(pathId),
+        pathName,
+        pickup,
+        dropoff,
+        fare,
+        used: false,
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+      }
+
+      const ticketResult = await db.collection("tickets").insertOne(ticket)
+      ticket._id = ticketResult.insertedId
+
+      console.log("Ticket created:", ticket)
+
+      // Update session balance
+      req.session.user.balance = userUpdateResult.balance
+
+      res.status(201).json({
+        message: "Ticket booked successfully",
+        ticket,
+        newBalance: userUpdateResult.balance,
+      })
+    } catch (error) {
+      console.error("Error booking ticket:", error)
+      res.status(500).json({ message: "Internal server error" })
+    }
+  },
+)
+
+app.get("/api/tickets/:id", requireAuth, checkDbConnection, async (req, res) => {
+  try {
+    const ticketId = req.params.id
+
+    if (!ObjectId.isValid(ticketId)) {
+      return res.status(400).json({ message: "Invalid ticket ID" })
+    }
+
+    const ticket = await db.collection("tickets").findOne({
+      _id: new ObjectId(ticketId),
+    })
+
+    if (!ticket) {
+      return res.status(404).json({ message: "Ticket not found" })
+    }
+
+    // Check if user owns this ticket (unless staff/admin)
+    if (req.session.user.role === "student" && ticket.userId.toString() !== req.session.user._id.toString()) {
+      return res.status(403).json({ message: "Access denied" })
+    }
+
+    res.json({ ticket })
+  } catch (error) {
+    console.error("Error fetching ticket:", error)
+    res.status(500).json({ message: "Internal server error" })
+  }
+})
+
+app.get("/api/tickets/user/:userId", requireAuth, checkDbConnection, async (req, res) => {
+  try {
+    const userId = req.params.userId
+
+    if (!ObjectId.isValid(userId)) {
+      return res.status(400).json({ message: "Invalid user ID" })
+    }
+
+    // Check if user is accessing their own tickets
+    if (req.session.user._id.toString() !== userId) {
+      return res.status(403).json({ message: "Access denied" })
+    }
+
+    const tickets = await db
+      .collection("tickets")
+      .find({ userId: new ObjectId(userId) })
+      .sort({ createdAt: -1 })
+      .toArray()
+
+    res.json({ tickets })
+  } catch (error) {
+    console.error("Error fetching user tickets:", error)
+    res.status(500).json({ message: "Internal server error" })
+  }
+})
+
+app.post(
+  "/api/tickets/:id/verify",
+  [body("staffId").isMongoId().withMessage("Invalid staff ID")],
+  requireStaff,
+  checkDbConnection,
+  async (req, res) => {
+    try {
+      const errors = validationResult(req)
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: errors.array(),
+        })
+      }
+
+      const { staffId } = req.body
+      const ticketId = req.params.id
+
+      if (!ObjectId.isValid(ticketId)) {
+        return res.status(400).json({ message: "Invalid ticket ID" })
+      }
+
+      // Verify staff ID matches session
+      if (req.session.user._id.toString() !== staffId) {
+        return res.status(403).json({ message: "Unauthorized" })
+      }
+
+      const ticket = await db.collection("tickets").findOne({
+        _id: new ObjectId(ticketId),
+      })
+
+      if (!ticket) {
+        return res.status(404).json({ message: "Ticket not found" })
+      }
+
+      if (ticket.used) {
+        return res.status(400).json({ message: "Ticket already used" })
+      }
+
+      if (new Date(ticket.expiresAt) < new Date()) {
+        return res.status(400).json({ message: "Ticket expired" })
+      }
+
+      // Mark ticket as used
+      await db.collection("tickets").updateOne(
+        { _id: new ObjectId(ticketId) },
+        {
+          $set: {
+            used: true,
+            verifiedBy: new ObjectId(staffId),
+            verifiedAt: new Date(),
+            updatedAt: new Date(),
+          },
+        },
+      )
+
+      res.json({ message: "Ticket verified successfully" })
+    } catch (error) {
+      console.error("Error verifying ticket:", error)
+      res.status(500).json({ message: "Internal server error" })
+    }
+  },
+)
