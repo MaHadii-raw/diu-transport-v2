@@ -38,10 +38,10 @@ app.use(
 let db
 const connectWithRetry = async () => {
   try {
-  const client = await MongoClient.connect(MONGODB_URI, {
-  maxPoolSize: 10,
-  serverSelectionTimeoutMS: 5000,
-})
+    const client = await MongoClient.connect(MONGODB_URI, {
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 5000,
+    })
     console.log("Connected to MongoDB")
     db = client.db()
   } catch (error) {
@@ -393,4 +393,40 @@ app.post(
       if (!isValidPassword) {
         return res.status(400).json({ message: "Invalid credentials" })
       }
-      
+
+      // Create session
+      const sessionUser = {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        ...(user.studentId && { studentId: user.studentId }),
+        ...(user.balance !== undefined && { balance: user.balance }),
+      }
+
+      req.session.user = sessionUser
+
+      res.json({ message: "Login successful", user: sessionUser })
+    } catch (error) {
+      console.error("Login error:", error)
+      res.status(500).json({ message: "Internal server error" })
+    }
+  },
+)
+
+app.post("/api/auth/logout", (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      return res.status(500).json({ message: "Could not log out" })
+    }
+    res.json({ message: "Logged out successfully" })
+  })
+})
+
+app.get("/api/auth/session", (req, res) => {
+  if (req.session.user) {
+    res.json({ user: req.session.user })
+  } else {
+    res.status(401).json({ message: "No active session" })
+  }
+})
