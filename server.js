@@ -928,3 +928,28 @@ app.post(
     }
   },
 )
+// Admin Routes (protected)
+app.use("/api/admin", requireAdmin)
+
+app.get("/api/admin/stats", checkDbConnection, async (req, res) => {
+  try {
+    const [totalUsers, totalStaff, totalPaths, totalTickets] = await Promise.all([
+      db.collection("users").countDocuments({ role: "student" }),
+      db.collection("users").countDocuments({ role: "staff" }),
+      db.collection("paths").countDocuments({ active: true }),
+      db.collection("tickets").countDocuments(),
+    ])
+
+    const stats = {
+      totalUsers,
+      totalStaff,
+      totalPaths,
+      totalTickets,
+    }
+
+    res.json({ stats })
+  } catch (error) {
+    console.error("Error fetching admin stats:", error)
+    res.status(500).json({ message: "Internal server error" })
+  }
+})
