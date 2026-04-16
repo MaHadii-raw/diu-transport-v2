@@ -685,3 +685,70 @@ app.post(
     }
   },
 )
+// Bus Location Routes
+app.post(
+  "/api/bus/location",
+  [
+    body("staffId").isMongoId().withMessage("Invalid staff ID"),
+    body("location.lat").isFloat({ min: -90, max: 90 }).withMessage("Invalid latitude"),
+    body("location.lng").isFloat({ min: -180, max: 180 }).withMessage("Invalid longitude"),
+  ],
+  requireStaff,
+  checkDbConnection,
+  async (req, res) => {
+    try {
+      const errors = validationResult(req)
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: errors.array(),
+        })
+      }
+
+      const { staffId, location, timestamp } = req.body
+
+      // Verify staff ID matches session
+      if (req.session.user._id.toString() !== staffId) {
+        return res.status(403).json({ message: "Unauthorized" })
+      }
+
+      const locationData = {
+        staffId: new ObjectId(staffId),
+        location,
+        timestamp: new Date(timestamp || Date.now()),
+        createdAt: new Date(),
+      }
+
+      await db.collection("bus_locations").insertOne(locationData)
+
+      res.json({ message: "Location updated successfully" })
+    } catch (error) {
+      console.error("Error updating location:", error)
+      res.status(500).json({ message: "Internal server error" })
+    }
+  },
+)
+
+app.get("/api/bus/location/:pathId", requireAuth, checkDbConnection, async (req, res) => {
+  try {
+    const pathId = req.params.pathId
+
+    if (!ObjectId.isValid(pathId)) {
+      return res.status(400).json({ message: "Invalid path ID" })
+    }
+
+    // Get latest locations (last 30 minutes)
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000)
+    const locations = await db
+      .collection("bus_locations")
+      .find({ timestamp: { $gte: thirtyMinutesAgo } })
+      .sort({ timestamp: -1 })
+      .limit(10)
+      .toArray()
+
+    res.json({ locations })
+  } catch (error) {
+    console.error("Error fetching bus locations:", error)
+    res.status(500).json({ message: "Internal server error" })
+  }
+})
