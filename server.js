@@ -868,3 +868,13 @@ app.post(
     }
   },
 )
+// Schedule Routes
+app.get("/api/schedules", checkDbConnection, async (req, res) => {
+  try {
+    const schedules = await db.collection("schedules").find({ active: true }).toArray()
+    res.json({ schedules })
+  } catch (error) {
+    console.error("Error fetching schedules:", error)
+    res.status(500).json({ message: "Internal server error" })
+  }
+})
