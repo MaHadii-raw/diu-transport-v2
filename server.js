@@ -878,3 +878,53 @@ app.get("/api/schedules", checkDbConnection, async (req, res) => {
     res.status(500).json({ message: "Internal server error" })
   }
 })
+// Support Routes
+app.post(
+  "/api/support/tickets",
+  [
+    body("subject").trim().isLength({ min: 5 }).withMessage("Subject must be at least 5 characters"),
+    body("category").isIn(["booking", "payment", "bus", "app", "account", "other"]).withMessage("Invalid category"),
+    body("description").trim().isLength({ min: 10 }).withMessage("Description must be at least 10 characters"),
+    body("priority").isIn(["low", "medium", "high", "urgent"]).withMessage("Invalid priority"),
+  ],
+  requireStudent,
+  checkDbConnection,
+  async (req, res) => {
+    try {
+      const errors = validationResult(req)
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: errors.array(),
+        })
+      }
+
+      const { subject, category, description, priority } = req.body
+
+      const supportTicket = {
+        userId: new ObjectId(req.session.user._id),
+        userEmail: req.session.user.email,
+        userName: req.session.user.name,
+        studentId: req.session.user.studentId,
+        subject: subject.trim(),
+        category,
+        description: description.trim(),
+        priority,
+        status: "open",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+
+      const result = await db.collection("support_tickets").insertOne(supportTicket)
+      supportTicket._id = result.insertedId
+
+      res.status(201).json({
+        message: "Support ticket created successfully",
+        ticket: supportTicket,
+      })
+    } catch (error) {
+      console.error("Error creating support ticket:", error)
+      res.status(500).json({ message: "Internal server error" })
+    }
+  },
+)
