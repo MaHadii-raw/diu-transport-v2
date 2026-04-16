@@ -752,3 +752,119 @@ app.get("/api/bus/location/:pathId", requireAuth, checkDbConnection, async (req,
     res.status(500).json({ message: "Internal server error" })
   }
 })
+// User Profile Routes
+app.put(
+  "/api/users/:id",
+  [
+    body("name").trim().isLength({ min: 2 }).withMessage("Name must be at least 2 characters"),
+    body("photo").optional().isURL().withMessage("Photo must be a valid URL"),
+  ],
+  requireAuth,
+  checkDbConnection,
+  async (req, res) => {
+    try {
+      const errors = validationResult(req)
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: errors.array(),
+        })
+      }
+
+      const { name, photo } = req.body
+      const userId = req.params.id
+
+      if (!ObjectId.isValid(userId)) {
+        return res.status(400).json({ message: "Invalid user ID" })
+      }
+
+      // Check if user is updating their own profile
+      if (req.session.user._id.toString() !== userId) {
+        return res.status(403).json({ message: "Access denied" })
+      }
+
+      const result = await db.collection("users").updateOne(
+        { _id: new ObjectId(userId) },
+        {
+          $set: {
+            name: name.trim(),
+            ...(photo && { photo }),
+            updatedAt: new Date(),
+          },
+        },
+      )
+
+      if (result.matchedCount === 0) {
+        return res.status(404).json({ message: "User not found" })
+      }
+
+      const updatedUser = await db.collection("users").findOne({
+        _id: new ObjectId(userId),
+      })
+      delete updatedUser.password
+
+      // Update session
+      req.session.user.name = updatedUser.name
+      if (updatedUser.photo) req.session.user.photo = updatedUser.photo
+
+      res.json({ message: "Profile updated successfully", user: updatedUser })
+    } catch (error) {
+      console.error("Error updating profile:", error)
+      res.status(500).json({ message: "Internal server error" })
+    }
+  },
+)
+
+app.post(
+  "/api/users/:id/topup",
+  [body("amount").isFloat({ min: 1, max: 1000 }).withMessage("Amount must be between 1 and 1000")],
+  requireStudent,
+  checkDbConnection,
+  async (req, res) => {
+    try {
+      const errors = validationResult(req)
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: errors.array(),
+        })
+      }
+
+      const { amount } = req.body
+      const userId = req.params.id
+
+      if (!ObjectId.isValid(userId)) {
+        return res.status(400).json({ message: "Invalid user ID" })
+      }
+
+      // Check if user is topping up their own account
+      if (req.session.user._id.toString() !== userId) {
+        return res.status(403).json({ message: "Access denied" })
+      }
+
+      const result = await db.collection("users").findOneAndUpdate(
+        { _id: new ObjectId(userId) },
+        {
+          $inc: { balance: amount },
+          $set: { updatedAt: new Date() },
+        },
+        { returnDocument: "after" },
+      )
+
+      if (!result) {
+        return res.status(404).json({ message: "User not found" })
+      }
+
+      // Update session balance
+      req.session.user.balance = result.balance
+
+      res.json({
+        message: "Top-up successful",
+        newBalance: result.balance,
+      })
+    } catch (error) {
+      console.error("Error processing top-up:", error)
+      res.status(500).json({ message: "Internal server error" })
+    }
+  },
+)
