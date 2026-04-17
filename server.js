@@ -1141,3 +1141,183 @@ app.delete("/api/admin/users/:id", checkDbConnection, async (req, res) => {
     res.status(500).json({ message: "Internal server error" })
   }
 })
+// Admin Staff Management Routes
+app.get("/api/admin/staff", checkDbConnection, async (req, res) => {
+  try {
+    const staff = await db.collection("users").find({ role: "staff" }).sort({ createdAt: -1 }).toArray()
+
+    // Remove passwords from response
+    const sanitizedStaff = staff.map((member) => {
+      const { password, otp, otpExpiry, ...staffWithoutSensitive } = member
+      return staffWithoutSensitive
+    })
+
+    res.json({ staff: sanitizedStaff })
+  } catch (error) {
+    console.error("Error fetching staff:", error)
+    res.status(500).json({ message: "Internal server error" })
+  }
+})
+
+app.post(
+  "/api/admin/staff",
+  [
+    body("name").trim().isLength({ min: 2 }).withMessage("Name must be at least 2 characters"),
+    body("email").isEmail().withMessage("Invalid email format"),
+    body("password").isLength({ min: 6 }).withMessage("Password must be at least 6 characters"),
+  ],
+  checkDbConnection,
+  async (req, res) => {
+    try {
+      const errors = validationResult(req)
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: errors.array(),
+        })
+      }
+
+      const { name, email, password } = req.body
+
+      // Additional validations
+      const emailError = validateDiuEmail(email)
+      if (emailError) {
+        return res.status(400).json({ message: emailError })
+      }
+
+      const passwordError = validatePassword(password)
+      if (passwordError) {
+        return res.status(400).json({ message: passwordError })
+      }
+
+      // Check if user already exists
+      const existingUser = await db.collection("users").findOne({
+        email: email.toLowerCase(),
+      })
+      if (existingUser) {
+        return res.status(400).json({ message: "User with this email already exists" })
+      }
+
+      // Hash password
+      const hashedPassword = await bcrypt.hash(password, 10)
+
+      const staff = {
+        name: name.trim(),
+        email: email.toLowerCase(),
+        password: hashedPassword,
+        role: "staff",
+        verified: true, // Admin-created users are auto-verified
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+
+      const result = await db.collection("users").insertOne(staff)
+
+      // Remove password from response
+      const { password: _, ...staffResponse } = staff
+      staffResponse._id = result.insertedId
+
+      res.status(201).json({
+        message: "Staff created successfully",
+        staff: staffResponse,
+      })
+    } catch (error) {
+      console.error("Error creating staff:", error)
+      res.status(500).json({ message: "Internal server error" })
+    }
+  },
+)
+
+app.put(
+  "/api/admin/staff/:id",
+  [
+    body("name").trim().isLength({ min: 2 }).withMessage("Name must be at least 2 characters"),
+    body("email").isEmail().withMessage("Invalid email format"),
+  ],
+  checkDbConnection,
+  async (req, res) => {
+    try {
+      const errors = validationResult(req)
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: errors.array(),
+        })
+      }
+
+      const { name, email } = req.body
+      const staffId = req.params.id
+
+      if (!ObjectId.isValid(staffId)) {
+        return res.status(400).json({ message: "Invalid staff ID" })
+      }
+
+      // Additional validations
+      const emailError = validateDiuEmail(email)
+      if (emailError) {
+        return res.status(400).json({ message: emailError })
+      }
+
+      // Check if email already exists for other users
+      const existingUser = await db.collection("users").findOne({
+        _id: { $ne: new ObjectId(staffId) },
+        email: email.toLowerCase(),
+      })
+      if (existingUser) {
+        return res.status(400).json({ message: "User with this email already exists" })
+      }
+
+      const result = await db.collection("users").updateOne(
+        { _id: new ObjectId(staffId), role: "staff" },
+        {
+          $set: {
+            name: name.trim(),
+            email: email.toLowerCase(),
+            updatedAt: new Date(),
+          },
+        },
+      )
+
+      if (result.matchedCount === 0) {
+        return res.status(404).json({ message: "Staff member not found" })
+      }
+
+      const updatedStaff = await db.collection("users").findOne({
+        _id: new ObjectId(staffId),
+      })
+      delete updatedStaff.password
+
+      res.json({
+        message: "Staff updated successfully",
+        staff: updatedStaff,
+      })
+    } catch (error) {
+      console.error("Error updating staff:", error)
+      res.status(500).json({ message: "Internal server error" })
+    }
+  },
+)
+
+app.delete("/api/admin/staff/:id", checkDbConnection, async (req, res) => {
+  try {
+    const staffId = req.params.id
+
+    if (!ObjectId.isValid(staffId)) {
+      return res.status(400).json({ message: "Invalid staff ID" })
+    }
+
+    const result = await db.collection("users").deleteOne({
+      _id: new ObjectId(staffId),
+      role: "staff",
+    })
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ message: "Staff member not found" })
+    }
+
+    res.json({ message: "Staff deleted successfully" })
+  } catch (error) {
+    console.error("Error deleting staff:", error)
+    res.status(500).json({ message: "Internal server error" })
+  }
+})
