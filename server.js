@@ -1671,3 +1671,29 @@ app.delete("/api/admin/schedules/:id", checkDbConnection, async (req, res) => {
     res.status(500).json({ message: "Internal server error" })
   }
 })
+// Health check
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "OK",
+    timestamp: new Date().toISOString(),
+    database: db ? "connected" : "disconnected",
+    emailjs: {
+      configured: !!(
+        process.env.EMAILJS_SERVICE_ID &&
+        process.env.EMAILJS_TEMPLATE_ID &&
+        process.env.EMAILJS_PUBLIC_KEY
+      ),
+      serviceId: process.env.EMAILJS_SERVICE_ID || "not-configured",
+      templateId: process.env.EMAILJS_TEMPLATE_ID || "not-configured",
+    },
+  })
+})
+app.get('/', (req, res) => {
+  res.send('welcome')
+})
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`)
+  console.log(`Health check: http://localhost:${PORT}/api/health`)
+  console.log(`EmailJS test: http://localhost:${PORT}/api/emailjs/test`)
+})
