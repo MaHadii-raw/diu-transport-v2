@@ -1321,3 +1321,191 @@ app.delete("/api/admin/staff/:id", checkDbConnection, async (req, res) => {
     res.status(500).json({ message: "Internal server error" })
   }
 })
+// Admin Path Management Routes
+app.get("/api/admin/paths", checkDbConnection, async (req, res) => {
+  try {
+    const paths = await db.collection("paths").find({}).sort({ createdAt: -1 }).toArray()
+    res.json({ paths })
+  } catch (error) {
+    console.error("Error fetching paths:", error)
+    res.status(500).json({ message: "Internal server error" })
+  }
+})
+
+app.post(
+  "/api/admin/paths",
+  [
+    body("name").trim().isLength({ min: 3 }).withMessage("Path name must be at least 3 characters"),
+    body("points").isArray({ min: 2 }).withMessage("Path must have at least 2 points"),
+    body("segments").isArray({ min: 1 }).withMessage("Path must have at least 1 segment"),
+  ],
+  checkDbConnection,
+  async (req, res) => {
+    try {
+      const errors = validationResult(req)
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: errors.array(),
+        })
+      }
+
+      const { name, points, segments } = req.body
+
+      // Validate points structure
+      for (const point of points) {
+        if (!point.name || typeof point.order !== "number") {
+          return res.status(400).json({ message: "Invalid point structure" })
+        }
+      }
+
+      // Validate segments structure
+      for (const segment of segments) {
+        if (!segment.from || !segment.to || typeof segment.fare !== "number" || segment.fare <= 0) {
+          return res.status(400).json({ message: "Invalid segment structure" })
+        }
+      }
+
+      // Check if path name already exists
+      const existingPath = await db.collection("paths").findOne({
+        name: name.trim(),
+      })
+      if (existingPath) {
+        return res.status(400).json({ message: "Path with this name already exists" })
+      }
+
+      const path = {
+        name: name.trim(),
+        points,
+        segments,
+        active: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+
+      const result = await db.collection("paths").insertOne(path)
+      path._id = result.insertedId
+
+      res.status(201).json({
+        message: "Path created successfully",
+        path,
+      })
+    } catch (error) {
+      console.error("Error creating path:", error)
+      res.status(500).json({ message: "Internal server error" })
+    }
+  },
+)
+
+app.put(
+  "/api/admin/paths/:id",
+  [
+    body("name").trim().isLength({ min: 3 }).withMessage("Path name must be at least 3 characters"),
+    body("points").isArray({ min: 2 }).withMessage("Path must have at least 2 points"),
+    body("segments").isArray({ min: 1 }).withMessage("Path must have at least 1 segment"),
+  ],
+  checkDbConnection,
+  async (req, res) => {
+    try {
+      const errors = validationResult(req)
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: errors.array(),
+        })
+      }
+
+      const { name, points, segments } = req.body
+      const pathId = req.params.id
+
+      if (!ObjectId.isValid(pathId)) {
+        return res.status(400).json({ message: "Invalid path ID" })
+      }
+
+      // Validate points structure
+      for (const point of points) {
+        if (!point.name || typeof point.order !== "number") {
+          return res.status(400).json({ message: "Invalid point structure" })
+        }
+      }
+
+      // Validate segments structure
+      for (const segment of segments) {
+        if (!segment.from || !segment.to || typeof segment.fare !== "number" || segment.fare <= 0) {
+          return res.status(400).json({ message: "Invalid segment structure" })
+        }
+      }
+
+      // Check if path name already exists for other paths
+      const existingPath = await db.collection("paths").findOne({
+        _id: { $ne: new ObjectId(pathId) },
+        name: name.trim(),
+      })
+      if (existingPath) {
+        return res.status(400).json({ message: "Path with this name already exists" })
+      }
+
+      const result = await db.collection("paths").updateOne(
+        { _id: new ObjectId(pathId) },
+        {
+          $set: {
+            name: name.trim(),
+            points,
+            segments,
+            updatedAt: new Date(),
+          },
+        },
+      )
+
+      if (result.matchedCount === 0) {
+        return res.status(404).json({ message: "Path not found" })
+      }
+
+      const updatedPath = await db.collection("paths").findOne({
+        _id: new ObjectId(pathId),
+      })
+
+      res.json({
+        message: "Path updated successfully",
+        path: updatedPath,
+      })
+    } catch (error) {
+      console.error("Error updating path:", error)
+      res.status(500).json({ message: "Internal server error" })
+    }
+  },
+)
+
+app.delete("/api/admin/paths/:id", checkDbConnection, async (req, res) => {
+  try {
+    const pathId = req.params.id
+
+    if (!ObjectId.isValid(pathId)) {
+      return res.status(400).json({ message: "Invalid path ID" })
+    }
+
+    // Check if path is being used in schedules
+    const scheduleCount = await db.collection("schedules").countDocuments({
+      pathId: new ObjectId(pathId),
+    })
+
+    if (scheduleCount > 0) {
+      return res.status(400).json({
+        message: "Cannot delete path. It is being used in schedules.",
+      })
+    }
+
+    const result = await db.collection("paths").deleteOne({
+      _id: new ObjectId(pathId),
+    })
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ message: "Path not found" })
+    }
+
+    res.json({ message: "Path deleted successfully" })
+  } catch (error) {
+    console.error("Error deleting path:", error)
+    res.status(500).json({ message: "Internal server error" })
+  }
+})
