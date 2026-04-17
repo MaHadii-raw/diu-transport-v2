@@ -1509,3 +1509,165 @@ app.delete("/api/admin/paths/:id", checkDbConnection, async (req, res) => {
     res.status(500).json({ message: "Internal server error" })
   }
 })
+// Admin Schedule Management Routes
+app.get("/api/admin/schedules", checkDbConnection, async (req, res) => {
+  try {
+    const schedules = await db.collection("schedules").find({}).sort({ createdAt: -1 }).toArray()
+    res.json({ schedules })
+  } catch (error) {
+    console.error("Error fetching schedules:", error)
+    res.status(500).json({ message: "Internal server error" })
+  }
+})
+
+app.post(
+  "/api/admin/schedules",
+  [
+    body("pathId").isMongoId().withMessage("Invalid path ID"),
+    body("pathName").trim().isLength({ min: 3 }).withMessage("Path name must be at least 3 characters"),
+    body("departureTimes").isArray({ min: 1 }).withMessage("Must have at least 1 departure time"),
+    body("capacity").isInt({ min: 1, max: 100 }).withMessage("Capacity must be between 1 and 100"),
+  ],
+  checkDbConnection,
+  async (req, res) => {
+    try {
+      const errors = validationResult(req)
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: errors.array(),
+        })
+      }
+
+      const { pathId, pathName, departureTimes, capacity } = req.body
+
+      // Validate departure times format
+      for (const time of departureTimes) {
+        if (!/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(time)) {
+          return res.status(400).json({ message: "Invalid time format. Use HH:MM" })
+        }
+      }
+
+      // Check if path exists
+      const path = await db.collection("paths").findOne({
+        _id: new ObjectId(pathId),
+      })
+      if (!path) {
+        return res.status(404).json({ message: "Path not found" })
+      }
+
+      // Check if schedule already exists for this path
+      const existingSchedule = await db.collection("schedules").findOne({
+        pathId: new ObjectId(pathId),
+      })
+      if (existingSchedule) {
+        return res.status(400).json({ message: "Schedule already exists for this path" })
+      }
+
+      const schedule = {
+        pathId: new ObjectId(pathId),
+        pathName: pathName.trim(),
+        departureTimes: departureTimes.sort(),
+        capacity,
+        active: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+
+      const result = await db.collection("schedules").insertOne(schedule)
+      schedule._id = result.insertedId
+
+      res.status(201).json({
+        message: "Schedule created successfully",
+        schedule,
+      })
+    } catch (error) {
+      console.error("Error creating schedule:", error)
+      res.status(500).json({ message: "Internal server error" })
+    }
+  },
+)
+
+app.put(
+  "/api/admin/schedules/:id",
+  [
+    body("departureTimes").isArray({ min: 1 }).withMessage("Must have at least 1 departure time"),
+    body("capacity").isInt({ min: 1, max: 100 }).withMessage("Capacity must be between 1 and 100"),
+  ],
+  checkDbConnection,
+  async (req, res) => {
+    try {
+      const errors = validationResult(req)
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: errors.array(),
+        })
+      }
+
+      const { departureTimes, capacity } = req.body
+      const scheduleId = req.params.id
+
+      if (!ObjectId.isValid(scheduleId)) {
+        return res.status(400).json({ message: "Invalid schedule ID" })
+      }
+
+      // Validate departure times format
+      for (const time of departureTimes) {
+        if (!/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(time)) {
+          return res.status(400).json({ message: "Invalid time format. Use HH:MM" })
+        }
+      }
+
+      const result = await db.collection("schedules").updateOne(
+        { _id: new ObjectId(scheduleId) },
+        {
+          $set: {
+            departureTimes: departureTimes.sort(),
+            capacity,
+            updatedAt: new Date(),
+          },
+        },
+      )
+
+      if (result.matchedCount === 0) {
+        return res.status(404).json({ message: "Schedule not found" })
+      }
+
+      const updatedSchedule = await db.collection("schedules").findOne({
+        _id: new ObjectId(scheduleId),
+      })
+
+      res.json({
+        message: "Schedule updated successfully",
+        schedule: updatedSchedule,
+      })
+    } catch (error) {
+      console.error("Error updating schedule:", error)
+      res.status(500).json({ message: "Internal server error" })
+    }
+  },
+)
+
+app.delete("/api/admin/schedules/:id", checkDbConnection, async (req, res) => {
+  try {
+    const scheduleId = req.params.id
+
+    if (!ObjectId.isValid(scheduleId)) {
+      return res.status(400).json({ message: "Invalid schedule ID" })
+    }
+
+    const result = await db.collection("schedules").deleteOne({
+      _id: new ObjectId(scheduleId),
+    })
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ message: "Schedule not found" })
+    }
+
+    res.json({ message: "Schedule deleted successfully" })
+  } catch (error) {
+    console.error("Error deleting schedule:", error)
+    res.status(500).json({ message: "Internal server error" })
+  }
+})
