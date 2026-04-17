@@ -953,3 +953,191 @@ app.get("/api/admin/stats", checkDbConnection, async (req, res) => {
     res.status(500).json({ message: "Internal server error" })
   }
 })
+// Admin User Management Routes
+app.get("/api/admin/users", checkDbConnection, async (req, res) => {
+  try {
+    const users = await db.collection("users").find({ role: "student" }).sort({ createdAt: -1 }).toArray()
+
+    // Remove passwords from response
+    const sanitizedUsers = users.map((user) => {
+      const { password, otp, otpExpiry, ...userWithoutSensitive } = user
+      return userWithoutSensitive
+    })
+
+    res.json({ users: sanitizedUsers })
+  } catch (error) {
+    console.error("Error fetching users:", error)
+    res.status(500).json({ message: "Internal server error" })
+  }
+})
+
+app.post(
+  "/api/admin/users",
+  [
+    body("name").trim().isLength({ min: 2 }).withMessage("Name must be at least 2 characters"),
+    body("email").isEmail().withMessage("Invalid email format"),
+    body("studentId").isLength({ min: 1, max: 16 }).isNumeric().withMessage("Student ID must be 1-16 digits only"),
+    body("balance").isFloat({ min: 0 }).withMessage("Balance must be non-negative"),
+    body("password").isLength({ min: 6 }).withMessage("Password must be at least 6 characters"),
+  ],
+  checkDbConnection,
+  async (req, res) => {
+    try {
+      const errors = validationResult(req)
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: errors.array(),
+        })
+      }
+
+      const { name, email, studentId, balance, password } = req.body
+
+      // Additional validations
+      const emailError = validateDiuEmail(email)
+      if (emailError) {
+        return res.status(400).json({ message: emailError })
+      }
+
+      const passwordError = validatePassword(password)
+      if (passwordError) {
+        return res.status(400).json({ message: passwordError })
+      }
+
+      // Check if user already exists
+      const existingUser = await db.collection("users").findOne({
+        $or: [{ email: email.toLowerCase() }, { studentId }],
+      })
+      if (existingUser) {
+        return res.status(400).json({ message: "User with this email or student ID already exists" })
+      }
+
+      // Hash password
+      const hashedPassword = await bcrypt.hash(password, 10)
+
+      const user = {
+        name: name.trim(),
+        email: email.toLowerCase(),
+        password: hashedPassword,
+        role: "student",
+        studentId,
+        balance,
+        verified: true, // Admin-created users are auto-verified
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+
+      const result = await db.collection("users").insertOne(user)
+
+      // Remove password from response
+      const { password: _, ...userResponse } = user
+      userResponse._id = result.insertedId
+
+      res.status(201).json({
+        message: "User created successfully",
+        user: userResponse,
+      })
+    } catch (error) {
+      console.error("Error creating user:", error)
+      res.status(500).json({ message: "Internal server error" })
+    }
+  },
+)
+
+app.put(
+  "/api/admin/users/:id",
+  [
+    body("name").trim().isLength({ min: 2 }).withMessage("Name must be at least 2 characters"),
+    body("email").isEmail().withMessage("Invalid email format"),
+    body("studentId").isLength({ min: 1, max: 16 }).isNumeric().withMessage("Student ID must be 1-16 digits only"),
+    body("balance").isFloat({ min: 0 }).withMessage("Balance must be non-negative"),
+  ],
+  checkDbConnection,
+  async (req, res) => {
+    try {
+      const errors = validationResult(req)
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: errors.array(),
+        })
+      }
+
+      const { name, email, studentId, balance } = req.body
+      const userId = req.params.id
+
+      if (!ObjectId.isValid(userId)) {
+        return res.status(400).json({ message: "Invalid user ID" })
+      }
+
+      // Additional validations
+      const emailError = validateDiuEmail(email)
+      if (emailError) {
+        return res.status(400).json({ message: emailError })
+      }
+
+      // Check if email or studentId already exists for other users
+      const existingUser = await db.collection("users").findOne({
+        _id: { $ne: new ObjectId(userId) },
+        $or: [{ email: email.toLowerCase() }, { studentId }],
+      })
+      if (existingUser) {
+        return res.status(400).json({ message: "User with this email or student ID already exists" })
+      }
+
+      const result = await db.collection("users").updateOne(
+        { _id: new ObjectId(userId), role: "student" },
+        {
+          $set: {
+            name: name.trim(),
+            email: email.toLowerCase(),
+            studentId,
+            balance,
+            updatedAt: new Date(),
+          },
+        },
+      )
+
+      if (result.matchedCount === 0) {
+        return res.status(404).json({ message: "Student not found" })
+      }
+
+      const updatedUser = await db.collection("users").findOne({
+        _id: new ObjectId(userId),
+      })
+      delete updatedUser.password
+
+      res.json({
+        message: "User updated successfully",
+        user: updatedUser,
+      })
+    } catch (error) {
+      console.error("Error updating user:", error)
+      res.status(500).json({ message: "Internal server error" })
+    }
+  },
+)
+
+app.delete("/api/admin/users/:id", checkDbConnection, async (req, res) => {
+  try {
+    const userId = req.params.id
+
+    if (!ObjectId.isValid(userId)) {
+      return res.status(400).json({ message: "Invalid user ID" })
+    }
+
+    const result = await db.collection("users").deleteOne({
+      _id: new ObjectId(userId),
+      role: "student",
+    })
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ message: "Student not found" })
+    }
+
+    res.json({ message: "User deleted successfully" })
+  } catch (error) {
+    console.error("Error deleting user:", error)
+    res.status(500).json({ message: "Internal server error" })
+  }
+})
